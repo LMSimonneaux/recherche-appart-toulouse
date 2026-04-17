@@ -5,6 +5,7 @@ v2 — Corrections: parsing Bien'ici, filtrage PAP, pagination, exclusion coloca
 """
 
 import json
+import os
 import re
 import sys
 import time
@@ -95,6 +96,68 @@ HORS_CENTRE = [
 ]
 
 
+# ─── Données arrondissements Paris ────────────────────────────────────
+
+# Mots-clés associés à chaque code postal parisien
+PARIS_ARRONDISSEMENT_KEYWORDS: dict[str, list[str]] = {
+    '75001': ['1er', '1ème', '1eme', 'louvre', 'châtelet', 'chatelet', 'halles'],
+    '75002': ['2e', '2ème', '2eme', 'bourse', 'sentier'],
+    '75003': ['3e', '3ème', '3eme', 'temple', 'marais'],
+    '75004': ['4e', '4ème', '4eme', 'marais', 'île de la cité', 'ile de la cite', 'saint-gervais'],
+    '75005': ['5e', '5ème', '5eme', 'latin', 'panthéon', 'pantheon', 'mouffetard', 'jussieu'],
+    '75006': ['6e', '6ème', '6eme', 'luxembourg', 'saint-germain', 'odéon', 'odeon', 'mabillon'],
+    '75007': ['7e', '7ème', '7eme', 'invalides', 'eiffel', 'palais bourbon', 'rue de grenelle'],
+    '75008': ['8e', '8ème', '8eme', 'champs', 'madeleine', 'europe', 'étoile', 'etoile'],
+    '75009': ['9e', '9ème', '9eme', 'opéra', 'opera', 'pigalle', 'anvers'],
+    '75010': ['10e', '10ème', '10eme', 'gare du nord', "gare de l'est", 'canal saint-martin', 'strasbourg saint-denis'],
+    '75011': ['11e', '11ème', '11eme', 'bastille', 'oberkampf', 'ménilmontant', 'menilmontant', 'voltaire', 'charonne'],
+    '75012': ['12e', '12ème', '12eme', 'nation', 'bercy', 'gare de lyon', 'reuilly'],
+    '75013': ['13e', '13ème', '13eme', 'italie', 'gobelins', 'olympiades', 'tolbiac', 'maison-blanche'],
+    '75014': ['14e', '14ème', '14eme', 'montparnasse', 'denfert', 'alésia', 'alesia', 'plaisance', 'pernety'],
+    '75015': ['15e', '15ème', '15eme', 'convention', 'vaugirard', 'grenelle', 'javel', 'beaugrenelle'],
+    '75016': ['16e', '16ème', '16eme', 'passy', 'trocadéro', 'trocadero', 'auteuil', 'muette'],
+    '75017': ['17e', '17ème', '17eme', 'batignolles', 'monceau', 'épinettes', 'epinettes', 'wagram'],
+    '75018': ['18e', '18ème', '18eme', 'montmartre', 'clignancourt', 'la chapelle', 'goutte d\'or'],
+    '75019': ['19e', '19ème', '19eme', 'buttes chaumont', 'ourcq', 'stalingrad', 'crimée'],
+    '75020': ['20e', '20ème', '20eme', "père lachaise", 'belleville', 'gambetta'],
+}
+
+# Numéro → code postal
+PARIS_ARR_TO_POSTAL: dict[int, str] = {i: f'750{i:02d}' for i in range(1, 21)}
+
+
+def is_valid_paris(quartier: str, postal_code: str = "") -> bool:
+    """Vérifie si l'annonce est dans les arrondissements de Paris configurés."""
+    allowed = CONFIG.get('postal_codes', [])
+    # Pas de restriction → on accepte tout Paris
+    if not allowed:
+        return '750' in (postal_code or '') or 'paris' in quartier.lower()
+    # Match direct par code postal (5 chiffres)
+    if postal_code and postal_code in allowed:
+        return True
+    # Chercher un code postal 75xxx dans le texte du quartier
+    pc_m = re.search(r'75(\d{3})', quartier)
+    if pc_m:
+        detected = f'75{pc_m.group(1)}'
+        return detected in allowed
+    # Match par mots-clés avec word boundaries pour éviter '6e' dans '16e'
+    text = quartier.lower()
+    for postal in allowed:
+        for kw in PARIS_ARRONDISSEMENT_KEYWORDS.get(postal, []):
+            # Word boundary: on cherche le mot entier, pas une sous-chaîne
+            if re.search(r'(?<!\d)' + re.escape(kw) + r'(?!\w)', text):
+                return True
+    return False
+
+
+def is_valid_location(quartier: str, postal_code: str = "") -> bool:
+    """Dispatcher : valide la localisation selon la ville configurée."""
+    city = CONFIG.get('city', 'Toulouse').lower()
+    if city == 'paris':
+        return is_valid_paris(quartier, postal_code)
+    return is_centre_ville(quartier, postal_code)
+
+
 def is_centre_ville(quartier: str, postal_code: str = "") -> bool:
     """Vérifie si l'annonce est dans le centre-ville de Toulouse."""
     text = f"{quartier}".lower()
@@ -150,6 +213,36 @@ def parse_pieces(text: str) -> Optional[int]:
     return None
 
 
+# ─── Configuration (modifiable via `search_config.json`) ───────────────
+DEFAULT_CONFIG = {
+    "max_price": 600,
+    "city": "Toulouse",
+    "postal_codes": ["31000"],
+    "allow_coloc": False,
+    "only_coloc": False,
+    "center_only": True,
+    "max_pages": 11,
+    "notes": "",
+    "available_from": ""
+}
+
+
+def load_config(path: str = "search_config.json"):
+    cfg = DEFAULT_CONFIG.copy()
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                user = json.load(f)
+                if isinstance(user, dict):
+                    cfg.update(user)
+    except Exception:
+        pass
+    return cfg
+
+
+CONFIG = load_config()
+
+
 # ─── Scraper Bien'ici (API interception avec pagination) ──────────────
 
 def scrape_bienici(context: BrowserContext) -> list[Annonce]:
@@ -160,25 +253,43 @@ def scrape_bienici(context: BrowserContext) -> list[Annonce]:
     total_count = 0
 
     # Paginer pour couvrir un maximum d'annonces
-    for page_num in range(1, 12):  # Pages 1 à 11
+    for page_num in range(1, CONFIG.get('max_pages', 11) + 1):
         api_responses = []
         page = context.new_page()
 
         def make_interceptor(responses_list):
             def intercept(response: Response):
-                if 'realEstateAds.json' in response.url:
-                    try:
-                        ct = response.headers.get('content-type', '')
-                        if 'json' in ct:
+                try:
+                    url = response.url
+                    ct = response.headers.get('content-type', '')
+                    # Capturer les réponses JSON potentiellement utiles
+                    if 'json' in ct or url.endswith('.json') or 'realEstate' in url or 'search' in url:
+                        try:
                             body = response.json()
                             responses_list.append(body)
-                    except Exception:
-                        pass
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
             return intercept
 
         page.on('response', make_interceptor(api_responses))
 
-        url = f'https://www.bienici.com/recherche/location/toulouse-31000?prix-max=600&type=appartement&page={page_num}'
+        city_slug = CONFIG.get('city', 'Toulouse').lower().replace(' ', '-')
+        postals = CONFIG.get('postal_codes', ['31000']) or ['31000']
+        # Bien'ici accepte plusieurs locations séparées par des virgules
+        if len(postals) > 1:
+            location = ','.join(f"{city_slug}-{p}" for p in postals)
+        else:
+            location = f"{city_slug}-{postals[0]}" if postals else city_slug
+        # Type de bien : coloc seule, les deux, ou appart seulement
+        if CONFIG.get('only_coloc'):
+            type_param = 'typeBien[]=colocation'
+        elif CONFIG.get('allow_coloc'):
+            type_param = 'typeBien[]=appartement&typeBien[]=colocation'
+        else:
+            type_param = 'typeBien[]=appartement'
+        url = f'https://www.bienici.com/recherche/location/{location}?prix-max={CONFIG.get("max_price", 600)}&{type_param}&page={page_num}'
         try:
             print(f"  → Page {page_num}...")
             page.goto(url, wait_until='domcontentloaded', timeout=30000)
@@ -197,15 +308,15 @@ def scrape_bienici(context: BrowserContext) -> list[Annonce]:
         page.close()
 
         for data in api_responses:
-            if isinstance(data, dict):
+            if isinstance(data, dict) and 'realEstateAds' in data:
                 if total_count == 0:
                     total_count = data.get('total', 0)
                     print(f"  → Total annonces sur Bien'ici: {total_count}")
                 ads = data.get('realEstateAds', [])
                 all_ads_raw.extend(ads)
 
-        # Si on a tout récupéré, arrêter
-        if len(all_ads_raw) >= total_count or not api_responses:
+        # Si on a tout récupéré ou rien intercepté de pertinent, arrêter
+        if len(all_ads_raw) >= max(total_count, 1) or total_count == 0:
             break
 
     print(f"  → {len(all_ads_raw)} annonces brutes récupérées")
@@ -221,16 +332,20 @@ def scrape_bienici(context: BrowserContext) -> list[Annonce]:
                 continue
             seen_ids.add(ad_id)
 
-            # Exclure colocations
-            if ad.get('flatSharing', False):
-                continue
-
             titre = ad.get('title', '') or ''
-            if 'coloc' in titre.lower() or 'co-loc' in titre.lower():
-                continue
+            is_coloc = bool(ad.get('flatSharing', False)) or 'coloc' in titre.lower() or 'co-loc' in titre.lower() or 'colocation' in titre.lower()
+
+            # If only_coloc is requested, keep only colocations
+            if CONFIG.get('only_coloc', False):
+                if not is_coloc:
+                    continue
+            else:
+                # Otherwise, exclude colocations unless allow_coloc is True
+                if is_coloc and not CONFIG.get('allow_coloc', False):
+                    continue
 
             price = ad.get('price')
-            if not price or float(price) > 600:
+            if not price or float(price) > CONFIG.get('max_price', 600):
                 continue
 
             rent_hc = ad.get('rentWithoutCharges')
@@ -256,8 +371,9 @@ def scrape_bienici(context: BrowserContext) -> list[Annonce]:
                 dispo = "Immédiat"
 
             # URL
-            # Format Bien'ici: /annonce/location/toulouse-31000/ID
-            ad_url = f"https://www.bienici.com/annonce/location/toulouse-{postal_code}/{ad_id}"
+            # Format Bien'ici: /annonce/location/<city>-<postal>/ID
+            city_slug_for_url = CONFIG.get('city', 'Toulouse').lower().replace(' ', '-')
+            ad_url = f"https://www.bienici.com/annonce/location/{city_slug_for_url}-{postal_code}/{ad_id}"
 
             quartier_display = f"{quartier_name}" if quartier_name else f"{city} ({postal_code})"
 
@@ -305,7 +421,10 @@ def scrape_leboncoin(context: BrowserContext) -> list[Annonce]:
 
     page.on('response', intercept)
 
-    search_url = 'https://www.leboncoin.fr/recherche?category=10&locations=Toulouse_31000&real_estate_type=2&price=max-600'
+    loc_city = CONFIG.get('city', 'Toulouse').replace(' ', '_')
+    loc_postal = CONFIG.get('postal_codes', ['31000'])[0] if CONFIG.get('postal_codes') else ''
+    loc_part = f"{loc_city}_{loc_postal}" if loc_postal else loc_city
+    search_url = f'https://www.leboncoin.fr/recherche?category=10&locations={loc_part}&real_estate_type=2&price=max-{CONFIG.get("max_price", 600)}'
 
     try:
         page.goto(search_url, wait_until='domcontentloaded', timeout=30000)
@@ -438,8 +557,19 @@ def parse_lbc_ad(ad: dict) -> Optional[Annonce]:
     elif isinstance(price_data, (int, float)):
         price = float(price_data)
 
-    if not price or price > 600:
+    if not price or price > CONFIG.get('max_price', 600):
         return None
+
+    # Detect colocation in Leboncoin ad
+    titre_lower = (titre or '').lower()
+    is_coloc = ad.get('flatSharing', False) or 'coloc' in titre_lower or 'colocation' in titre_lower or 'co-loc' in titre_lower
+
+    if CONFIG.get('only_coloc', False):
+        if not is_coloc:
+            return None
+    else:
+        if is_coloc and not CONFIG.get('allow_coloc', False):
+            return None
 
     # Location
     loc = ad.get('location', {})
@@ -500,11 +630,16 @@ def scrape_pap(context: BrowserContext) -> list[Annonce]:
 
     page = context.new_page()
 
-    # Tenter plusieurs formats d'URL PAP pour Toulouse
-    urls_to_try = [
-        'https://www.pap.fr/annonce/location-appartement-toulouse-31000-g439-jusqu-a-600-euros',
-        'https://www.pap.fr/annonce/locations-appartement-toulouse-31000-jusqu-a-600-euros',
-    ]
+    # Générer des URLs PAP — une URL par code postal/arrondissement
+    city_slug = CONFIG.get('city', 'toulouse').lower().replace(' ', '-')
+    postals = CONFIG.get('postal_codes', ['31000']) or ['31000']
+    price_seg = f"jusqu-a-{CONFIG.get('max_price', 600)}-euros"
+    # Pour chaque arrondissement, essaie le format g439 (fonctionne pour toutes les villes)
+    urls_to_try = []
+    for postal in postals:
+        urls_to_try.append(f'https://www.pap.fr/annonce/location-appartement-{city_slug}-{postal}-g439-{price_seg}')
+    # Fallback URL générale sans arrondissement
+    urls_to_try.append(f'https://www.pap.fr/annonce/locations-appartement-{city_slug}-{price_seg}')
 
     for search_url in urls_to_try:
         try:
@@ -545,39 +680,57 @@ def scrape_pap(context: BrowserContext) -> list[Annonce]:
                 href = item['href']
                 text = item['text']
 
-                # FILTRE STRICT: le lien ou le texte doit contenir "toulouse" ou "31000"
+                # FILTRE VILLE: vérifier que l'annonce correspond à la ville configurée
                 href_lower = href.lower()
                 text_lower = text.lower()
+                city_val = CONFIG.get('city', 'Toulouse').lower()
+                allowed_postals = CONFIG.get('postal_codes', ['31000'])
 
-                is_toulouse = (
-                    'toulouse' in href_lower or
-                    '31000' in href_lower or
-                    'toulouse' in text_lower or
-                    '31000' in text_lower
+                is_right_city = (
+                    city_val in href_lower or
+                    any(p in href_lower for p in allowed_postals) or
+                    city_val in text_lower or
+                    any(p in text_lower for p in allowed_postals)
                 )
+                # Exclure les autres villes (sauf la ville configurée)
+                other_cities = ['toulouse', 'lyon', 'marseille', 'bordeaux', 'lille', 'nantes', 'montpellier', 'nice', 'strasbourg', 'paris']
+                other_cities = [c for c in other_cities if c != city_val]
+                is_other_city = any(c in href_lower for c in other_cities)
 
-                # Exclure explicitement Paris et autres villes
-                is_other_city = any(city in href_lower for city in ['paris', 'lyon', 'marseille', 'bordeaux', 'lille', 'nantes', 'montpellier', 'nice', 'strasbourg'])
-
-                if not is_toulouse or is_other_city:
+                if not is_right_city or is_other_city:
                     continue
 
-                # Exclure colocations
-                if 'coloc' in text_lower or 'co-loc' in text_lower:
-                    continue
+                # Colocation detection
+                is_coloc = 'coloc' in text_lower or 'co-loc' in text_lower or 'colocation' in text_lower
+                if CONFIG.get('only_coloc', False):
+                    if not is_coloc:
+                        continue
+                else:
+                    if is_coloc and not CONFIG.get('allow_coloc', False):
+                        continue
 
                 full_url = f"https://www.pap.fr{href}" if href.startswith('/') else href
                 price = parse_price(text)
                 surface = parse_surface(text)
                 pieces_n = parse_pieces(text)
 
-                if price and price <= 600:
+                if price and price <= CONFIG.get('max_price', 600):
                     # Extraire le quartier du texte
-                    quartier = "Toulouse"
-                    for q in CENTRE_QUARTIERS:
-                        if q in text_lower:
-                            quartier = q.title()
-                            break
+                    city_display = CONFIG.get('city', 'Toulouse')
+                    quartier = city_display
+                    # Pour Toulouse : chercher les quartiers du centre
+                    if city_display.lower() == 'toulouse':
+                        for q in CENTRE_QUARTIERS:
+                            if q in text_lower:
+                                quartier = q.title()
+                                break
+                    # Pour Paris : chercher le code postal dans le texte
+                    elif city_display.lower() == 'paris':
+                        for p in allowed_postals:
+                            if p in text_lower or p in href_lower:
+                                arr_num = int(p[3:])  # 75011 → 11
+                                quartier = f"Paris {arr_num}e"
+                                break
 
                     annonces.append(Annonce(
                         titre=item['linkText'][:60].strip() or text[:60].strip(),
@@ -589,8 +742,10 @@ def scrape_pap(context: BrowserContext) -> list[Annonce]:
                         source="PAP"
                     ))
 
-            if annonces:
-                break  # Pas besoin d'essayer l'autre URL
+            # On continue sur tous les codes postaux (pas de break)
+            # sauf pour le fallback URL générale qui vient en dernier
+            if annonces and search_url.endswith(f'{city_slug}-{price_seg}'):
+                break  # Fallback général atteint et résultats trouvés
 
         except Exception as e:
             print(f"  ⚠ Erreur PAP: {e}")
@@ -633,8 +788,9 @@ def scrape_seloger(context: BrowserContext) -> list[Annonce]:
     page.on('response', intercept)
 
     try:
+        max_price = CONFIG.get('max_price', 600)
         page.goto(
-            'https://www.seloger.com/list.htm?projects=1&types=1,2&places=[{ci:310555}]&price=NaN/600&enterprise=0&qsVersion=1.0',
+            f'https://www.seloger.com/list.htm?projects=1&types=1,2&places=[{{ci:310555}}]&price=NaN/{max_price}&enterprise=0&qsVersion=1.0',
             wait_until='domcontentloaded', timeout=30000
         )
         page.wait_for_timeout(6000)
@@ -679,7 +835,7 @@ def scrape_seloger(context: BrowserContext) -> list[Annonce]:
                     if isinstance(pricing, dict) and not price:
                         price = pricing.get('price', pricing.get('value'))
 
-                    if not price or float(price) > 600:
+                    if not price or float(price) > CONFIG.get('max_price', 600):
                         continue
 
                     surface = ad.get('livingArea', ad.get('surface', ad.get('surfaceArea')))
@@ -764,46 +920,64 @@ def scrape_lbc_api_direct(context: BrowserContext) -> list[Annonce]:
             pass
 
         # Maintenant faire un appel API depuis le contexte du navigateur
-        api_result = page.evaluate('''async () => {
-            try {
-                const response = await fetch('https://api.leboncoin.fr/finder/search', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Accept': 'application/json',
-                        'Origin': 'https://www.leboncoin.fr',
-                        'Referer': 'https://www.leboncoin.fr/',
-                    },
-                    body: JSON.stringify({
-                        "limit": 50,
-                        "limit_alu": 3,
-                        "filters": {
-                            "category": {"id": "10"},
-                            "enums": {
-                                "real_estate_type": ["2"],
-                                "ad_type": ["offer"]
-                            },
-                            "location": {
-                                "locations": [{"city": "Toulouse", "zipcode": "31000", "department_id": "31", "region_id": "16"}]
-                            },
-                            "ranges": {
-                                "price": {"max": 600}
-                            }
-                        },
-                        "sort_by": "time",
-                        "sort_order": "desc"
-                    })
-                });
+        _city = CONFIG.get('city', 'Toulouse')
+        _postals = CONFIG.get('postal_codes', ['31000']) or ['31000']
+        # dept/region selon la ville
+        _is_paris = _city.lower() == 'paris'
+        _dept = '75' if _is_paris else '31'
+        _region = '12' if _is_paris else '16'
+        _lbc_locations = [
+            {"city": _city, "zipcode": p, "department_id": _dept, "region_id": _region}
+            for p in _postals
+        ]
+        params = {
+            'maxPrice': CONFIG.get('max_price', 600),
+            'locations': _lbc_locations,
+        }
 
-                if (response.ok) {
-                    return await response.json();
-                } else {
-                    return {error: response.status, statusText: response.statusText};
+        api_result = page.evaluate(
+            '''async (params) => {
+                const {maxPrice, locations} = params;
+                try {
+                    const response = await fetch('https://api.leboncoin.fr/finder/search', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json',
+                            'Origin': 'https://www.leboncoin.fr',
+                            'Referer': 'https://www.leboncoin.fr/',
+                        },
+                        body: JSON.stringify({
+                            "limit": 50,
+                            "limit_alu": 3,
+                            "filters": {
+                                "category": {"id": "10"},
+                                "enums": {
+                                    "real_estate_type": ["2"],
+                                    "ad_type": ["offer"]
+                                },
+                                "location": {
+                                    "locations": locations
+                                },
+                                "ranges": {
+                                    "price": {"max": maxPrice}
+                                }
+                            },
+                            "sort_by": "time",
+                            "sort_order": "desc"
+                        })
+                    });
+                    if (response.ok) {
+                        return await response.json();
+                    } else {
+                        return {error: response.status, statusText: response.statusText};
+                    }
+                } catch(e) {
+                    return {error: e.message};
                 }
-            } catch(e) {
-                return {error: e.message};
-            }
-        }''')
+            }''',
+            params
+        )
 
         if isinstance(api_result, dict) and 'error' not in api_result:
             ads = api_result.get('ads', [])
@@ -846,22 +1020,54 @@ def deduplicate(annonces: list[Annonce]) -> list[Annonce]:
     return unique
 
 
+def _parse_available_from(val: str):
+    """Retourne un objet date depuis une chaîne YYYY-MM-DD, ou None si invalide."""
+    if not val:
+        return None
+    try:
+        from datetime import date as _date
+        parts = val.split('-')
+        if len(parts) == 1:
+            # format "2026" seul — ignorer
+            return None
+        if len(parts) == 2:
+            # format "2026-09" → premier du mois
+            return _date(int(parts[0]), int(parts[1]), 1)
+        return _date.fromisoformat(val)
+    except (ValueError, TypeError):
+        return None
+
+
 def filter_annonces(annonces: list[Annonce]) -> list[Annonce]:
+    from datetime import date as _date
     filtered = []
+    avail_limit = _parse_available_from(CONFIG.get('available_from', ''))
     for a in annonces:
-        if not a.loyer_cc or a.loyer_cc > 600:
+        if not a.loyer_cc or a.loyer_cc > CONFIG.get('max_price', 600):
             continue
         if not a.url or not a.url.startswith('http'):
             continue
 
-        # Centre-ville check
+        # Filtrage localisation
         postal = ''
-        pc_match = re.search(r'3\d{4}', a.quartier)
+        pc_match = re.search(r'\d{5}', a.quartier or '')
         if pc_match:
             postal = pc_match.group(0)
 
-        if not is_centre_ville(a.quartier, postal):
+        if CONFIG.get('center_only', True) and not is_valid_location(a.quartier or '', postal):
             continue
+
+        # Filtrage par date de disponibilité
+        if avail_limit:
+            dispo = (a.disponibilite or '').strip()
+            if dispo and dispo not in ('Non précisé', 'Immédiat', ''):
+                try:
+                    ad_date = _date.fromisoformat(dispo)
+                    if ad_date < avail_limit:
+                        continue  # disponible trop tôt
+                except ValueError:
+                    pass  # date non parseable → on garde l'annonce
+            # "Immédiat" ou "Non précisé" → on garde (logement potentiellement libre)
 
         filtered.append(a)
     return filtered
@@ -930,23 +1136,30 @@ def format_results(annonces: list[Annonce]):
 # ─── Main ─────────────────────────────────────────────────────────────
 
 def main():
-    print("🏠 Scraper v2 — Toulouse centre-ville ≤ 600€ CC")
+    city = CONFIG.get('city', 'Toulouse')
+    center_text = "centre-ville " if CONFIG.get('center_only', True) else ""
+    print(f"🏠 Scraper v2 — {city} {center_text}≤ {CONFIG.get('max_price', 600)}€ CC")
     print("=" * 60)
 
     all_annonces = []
 
+    # headless=False contourne l'anti-bot de Bien'ici mais ouvre une fenêtre
+    use_headless = CONFIG.get('headless', False)
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
+            headless=use_headless,
             args=[
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
                 '--disable-dev-shm-usage',
+                '--disable-infobars',
+                '--window-size=1920,1080',
             ]
         )
 
         context = browser.new_context(
-            user_agent='Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
             viewport={'width': 1920, 'height': 1080},
             locale='fr-FR',
             timezone_id='Europe/Paris',

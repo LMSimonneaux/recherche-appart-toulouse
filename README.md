@@ -15,6 +15,20 @@ python -m venv venv && source venv/bin/activate
 pip install playwright beautifulsoup4
 playwright install chromium
 python scraper.py
+
+Configuration des critères:
+
+- Utilisez [set_criteria.py](set_criteria.py) pour créer/éditer `search_config.json` (interactif):
+
+```
+python set_criteria.py
+```
+
+- Exemple en ligne de commande puis exécution:
+
+```
+python set_criteria.py --max-price 800 --postal-codes 31000,31400 --run
+```
 ```
 
 ## Résultats
