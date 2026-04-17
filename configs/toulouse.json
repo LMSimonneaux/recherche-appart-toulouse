@@ -1,0 +1,11 @@
+{
+  "max_price": 600,
+  "city": "Toulouse",
+  "postal_codes": ["31000"],
+  "allow_coloc": false,
+  "only_coloc": false,
+  "center_only": true,
+  "max_pages": 12,
+  "notes": "Toulouse centre-ville + quartiers immédiatement adjacents, ≤600€ CC, hors colocation",
+  "available_from": ""
+}

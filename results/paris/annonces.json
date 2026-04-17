@@ -1,0 +1,112 @@
+[
+  {
+    "titre": "Appartement 9.13m² Montparnasse - Raspail",
+    "url": "https://www.bienici.com/annonce/location/paris-75014/ics-rou_ROUSSEAU_PARIS_loc-GES00140420-751",
+    "loyer_cc": 359.0,
+    "loyer_hc": null,
+    "surface": 9.13,
+    "pieces": 1,
+    "quartier": "Montparnasse - Raspail",
+    "disponibilite": "Immédiat",
+    "source": "Bien'ici"
+  },
+  {
+    "titre": "Studio",
+    "url": "https://www.bienici.com/annonce/location/paris-75020/ag754025-499734044",
+    "loyer_cc": 750.0,
+    "loyer_hc": 690.0,
+    "surface": 13.0,
+    "pieces": 1,
+    "quartier": "Belleville",
+    "disponibilite": "Immédiat",
+    "source": "Bien'ici"
+  },
+  {
+    "titre": "790 €\nParis 13E (75013)\nChambre en colocation 7 pièces 155 m",
+    "url": "https://www.pap.fr/annonces/colocation-paris-13e-75013-r461702747",
+    "loyer_cc": 790.0,
+    "loyer_hc": null,
+    "surface": 155.0,
+    "pieces": 7,
+    "quartier": "Paris 13e",
+    "disponibilite": "Non précisé",
+    "source": "PAP"
+  },
+  {
+    "titre": "820 €\nParis 13E (75013)\nChambre en colocation 6 pièces 112 m",
+    "url": "https://www.pap.fr/annonces/colocation-paris-13e-75013-r458902257",
+    "loyer_cc": 820.0,
+    "loyer_hc": null,
+    "surface": 112.0,
+    "pieces": 6,
+    "quartier": "Paris 13e",
+    "disponibilite": "Non précisé",
+    "source": "PAP"
+  },
+  {
+    "titre": "Appartement 23.01m² Gambetta",
+    "url": "https://www.bienici.com/annonce/location/paris-75020/century-21-202_3332_1794",
+    "loyer_cc": 843.57,
+    "loyer_hc": null,
+    "surface": 23.01,
+    "pieces": 1,
+    "quartier": "Gambetta",
+    "disponibilite": "Immédiat",
+    "source": "Bien'ici"
+  },
+  {
+    "titre": "Appartement Studio PARIS",
+    "url": "https://www.bienici.com/annonce/location/paris-75011/ag753240-524379677",
+    "loyer_cc": 848.0,
+    "loyer_hc": 718.0,
+    "surface": 13.0,
+    "pieces": 1,
+    "quartier": "Bastille - Popincourt",
+    "disponibilite": "Immédiat",
+    "source": "Bien'ici"
+  },
+  {
+    "titre": "860 €\nParis 7E (75007)\n1 pièce 14 m²",
+    "url": "https://www.pap.fr/annonces/appartement-paris-7e-75007-r438500837",
+    "loyer_cc": 860.0,
+    "loyer_hc": null,
+    "surface": 14.0,
+    "pieces": 1,
+    "quartier": "Paris 7e",
+    "disponibilite": "Non précisé",
+    "source": "PAP"
+  },
+  {
+    "titre": "Studio / 19m² / Gambetta (Ligne 3)",
+    "url": "https://www.bienici.com/annonce/location/paris-75020/ag750135-510427919",
+    "loyer_cc": 865.0,
+    "loyer_hc": 865.0,
+    "surface": 19.0,
+    "pieces": 1,
+    "quartier": "Père Lachaise - Réunion",
+    "disponibilite": "Immédiat",
+    "source": "Bien'ici"
+  },
+  {
+    "titre": "Studio / 10m² / Convention (Ligne 12)",
+    "url": "https://www.bienici.com/annonce/location/paris-75015/ag752485-518296469",
+    "loyer_cc": 880.0,
+    "loyer_hc": 880.0,
+    "surface": 10.0,
+    "pieces": 1,
+    "quartier": "Vaugirard - Parc des Expositions",
+    "disponibilite": "Immédiat",
+    "source": "Bien'ici"
+  },
+  {
+    "titre": "900 €\nParis 13E (75013)\n1 pièce 17 m²",
+    "url": "https://www.pap.fr/annonces/appartement-paris-13e-75013-r458801312",
+    "loyer_cc": 900.0,
+    "loyer_hc": null,
+    "surface": 17.0,
+    "pieces": 1,
+    "quartier": "Paris 13e",
+    "disponibilite": "Non précisé",
+    "source": "PAP"
+  }
+]

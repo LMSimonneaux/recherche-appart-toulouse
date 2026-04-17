@@ -1,0 +1,11 @@
+{
+  "max_price": 900,
+  "city": "Paris",
+  "postal_codes": ["75005", "75006", "75007", "75011", "75013", "75014", "75015", "75020"],
+  "allow_coloc": true,
+  "only_coloc": false,
+  "center_only": true,
+  "max_pages": 15,
+  "notes": "Paris — arrondissements 5e, 6e, 7e, 11e, 13e, 14e, 15e, 20e ; appart ou coloc ; ≤900€ CC (marché parisien)",
+  "available_from": ""
+}

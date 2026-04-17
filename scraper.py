@@ -245,12 +245,34 @@ CONFIG = load_config()
 
 # ─── Scraper Bien'ici (API interception avec pagination) ──────────────
 
+def _accept_cookies(page, selectors=None):
+    """Tente d'accepter les cookies via plusieurs sélecteurs."""
+    defaults = [
+        'button:has-text("Tout accepter")',
+        'button:has-text("Accepter")',
+        '#didomi-notice-agree-button',
+        'button[id*=accept]',
+        '[aria-label*="accepter" i]',
+    ]
+    for sel in selectors or defaults:
+        try:
+            btn = page.query_selector(sel)
+            if btn and btn.is_visible():
+                btn.click()
+                page.wait_for_timeout(1500)
+                return True
+        except Exception:
+            continue
+    return False
+
+
 def scrape_bienici(context: BrowserContext) -> list[Annonce]:
     """Scrape Bien'ici via interception des appels API avec pagination."""
     print("\n🔍 Scraping Bien'ici...")
     annonces = []
     all_ads_raw = []
     total_count = 0
+    cookies_accepted = False
 
     # Paginer pour couvrir un maximum d'annonces
     for page_num in range(1, CONFIG.get('max_pages', 11) + 1):
@@ -293,14 +315,20 @@ def scrape_bienici(context: BrowserContext) -> list[Annonce]:
         try:
             print(f"  → Page {page_num}...")
             page.goto(url, wait_until='domcontentloaded', timeout=30000)
-            page.wait_for_timeout(4000)
+            page.wait_for_timeout(3500)
 
-            # Scroll
-            for _ in range(3):
-                page.evaluate('window.scrollBy(0, 600)')
-                page.wait_for_timeout(500)
+            # Accepter les cookies uniquement à la première page (session partagée via context)
+            if not cookies_accepted:
+                if _accept_cookies(page):
+                    cookies_accepted = True
+                    page.wait_for_timeout(2000)
 
-            page.wait_for_timeout(2000)
+            # Scroll pour déclencher les requêtes API
+            for _ in range(4):
+                page.evaluate('window.scrollBy(0, 800)')
+                page.wait_for_timeout(700)
+
+            page.wait_for_timeout(2500)
 
         except Exception as e:
             print(f"  ⚠ Erreur navigation page {page_num}: {e}")
@@ -392,7 +420,7 @@ def scrape_bienici(context: BrowserContext) -> list[Annonce]:
         except Exception as e:
             print(f"  ⚠ Erreur parsing: {e}")
 
-    print(f"  ✓ Bien'ici: {len(annonces)} annonces (après exclusion colocations et >600€)")
+    print(f"  ✓ Bien'ici: {len(annonces)} annonces (après prix ≤ {CONFIG.get('max_price', 600)}€ et filtres coloc)")
     return annonces
 
 
@@ -516,14 +544,6 @@ def scrape_leboncoin(context: BrowserContext) -> list[Annonce]:
                         ))
                 except Exception:
                     pass
-
-        # Debug: sauvegarder le HTML
-        try:
-            html = page.content()
-            with open('debug_leboncoin.html', 'w') as f:
-                f.write(html)
-        except Exception:
-            pass
 
     except Exception as e:
         print(f"  ⚠ Erreur Leboncoin: {e}")
@@ -750,14 +770,6 @@ def scrape_pap(context: BrowserContext) -> list[Annonce]:
         except Exception as e:
             print(f"  ⚠ Erreur PAP: {e}")
 
-    # Debug
-    try:
-        html = page.content()
-        with open('debug_pap.html', 'w') as f:
-            f.write(html)
-    except Exception:
-        pass
-
     page.close()
     print(f"  ✓ PAP: {len(annonces)} annonces trouvées")
     return annonces
@@ -884,13 +896,6 @@ def scrape_seloger(context: BrowserContext) -> list[Annonce]:
 
     except Exception as e:
         print(f"  ⚠ Erreur SeLoger: {e}")
-
-    # Debug
-    try:
-        with open('debug_seloger.html', 'w') as f:
-            f.write(page.content())
-    except Exception:
-        pass
 
     page.close()
     print(f"  ✓ SeLoger: {len(annonces)} annonces trouvées")
@@ -1073,64 +1078,54 @@ def filter_annonces(annonces: list[Annonce]) -> list[Annonce]:
     return filtered
 
 
+def _city_slug(city: str) -> str:
+    return (city or 'recherche').strip().lower().replace(' ', '-')
+
+
 def format_results(annonces: list[Annonce]):
     if not annonces:
         print("\n❌ Aucune annonce trouvée après filtrage.")
         return
 
-    print(f"\n{'='*100}")
+    print(f"\n{'='*80}")
     print(f"  RÉSULTATS FINAUX: {len(annonces)} annonces valides")
-    print(f"{'='*100}")
+    print(f"{'='*80}")
 
-    # Liste 1 — Par prix croissant
     by_price = sorted(annonces, key=lambda a: a.loyer_cc or 9999)
-    print("\n📊 LISTE 1 — Par prix croissant\n")
-    header = f"| {'#':>3} | {'Titre':<40} | {'Quartier':<25} | {'CC':>6} | {'HC':>6} | {'m²':>5} | {'P.':>3} | {'Dispo':<12} | {'Source':<10} |"
-    sep = f"|{'-'*5}|{'-'*42}|{'-'*27}|{'-'*8}|{'-'*8}|{'-'*7}|{'-'*5}|{'-'*14}|{'-'*12}|"
-    print(header)
-    print(sep)
+
+    # Aperçu CLI (concis)
+    print(f"\n{'#':>3}  {'CC':>6}  {'m²':>5}  {'P.':>3}  {'Quartier':<30}  Source")
     for i, a in enumerate(by_price, 1):
         sf = f"{a.surface:.0f}" if a.surface else "?"
         pcs = str(a.pieces) if a.pieces else "?"
         cc = f"{a.loyer_cc:.0f}€" if a.loyer_cc else "?"
-        hc = f"{a.loyer_hc:.0f}€" if a.loyer_hc else "-"
-        titre_short = a.titre[:40] if a.titre else ""
-        quartier_short = a.quartier[:25] if a.quartier else ""
-        dispo_short = a.disponibilite[:12]
-        print(f"| {i:>3} | {titre_short:<40} | {quartier_short:<25} | {cc:>6} | {hc:>6} | {sf:>5} | {pcs:>3} | {dispo_short:<12} | {a.source:<10} |")
+        q = (a.quartier or '')[:30]
+        print(f"{i:>3}  {cc:>6}  {sf:>5}  {pcs:>3}  {q:<30}  {a.source}")
 
-    print("\n\nURLs des annonces (Liste 1 — prix croissant) :")
-    for i, a in enumerate(by_price, 1):
-        print(f"  {i:>2}. {a.url}")
+    # Export dans results/<ville>/
+    city = CONFIG.get('city', 'Toulouse')
+    out_dir = os.path.join('results', _city_slug(city))
+    os.makedirs(out_dir, exist_ok=True)
 
-    # Liste 2 — Par surface décroissante
-    by_surface = sorted(annonces, key=lambda a: a.surface or 0, reverse=True)
-    print("\n\n📊 LISTE 2 — Par surface décroissante\n")
-    print(header)
-    print(sep)
-    for i, a in enumerate(by_surface, 1):
-        sf = f"{a.surface:.0f}" if a.surface else "?"
-        pcs = str(a.pieces) if a.pieces else "?"
-        cc = f"{a.loyer_cc:.0f}€" if a.loyer_cc else "?"
-        hc = f"{a.loyer_hc:.0f}€" if a.loyer_hc else "-"
-        titre_short = a.titre[:40] if a.titre else ""
-        quartier_short = a.quartier[:25] if a.quartier else ""
-        dispo_short = a.disponibilite[:12]
-        print(f"| {i:>3} | {titre_short:<40} | {quartier_short:<25} | {cc:>6} | {hc:>6} | {sf:>5} | {pcs:>3} | {dispo_short:<12} | {a.source:<10} |")
-
-    print("\n\nURLs des annonces (Liste 2 — surface décroissante) :")
-    for i, a in enumerate(by_surface, 1):
-        print(f"  {i:>2}. {a.url}")
-
-    # Export
     export = [asdict(a) for a in by_price]
-    with open('resultats_annonces.json', 'w', encoding='utf-8') as f:
+    json_path = os.path.join(out_dir, 'annonces.json')
+    csv_path = os.path.join(out_dir, 'annonces.csv')
+
+    with open(json_path, 'w', encoding='utf-8') as f:
         json.dump(export, f, ensure_ascii=False, indent=2)
 
     df = pd.DataFrame(export)
-    df.to_csv('resultats_annonces.csv', index=False, encoding='utf-8')
+    df.to_csv(csv_path, index=False, encoding='utf-8')
 
-    print(f"\n💾 Exporté: resultats_annonces.json + resultats_annonces.csv")
+    print(f"\n💾 Exporté : {json_path} + {csv_path}")
+
+    # Génération du rapport markdown
+    try:
+        from generate_report import generate
+        report_path = os.path.join(out_dir, 'rapport.md')
+        generate(export, CONFIG, report_path)
+    except Exception as e:
+        print(f"⚠ Erreur génération rapport : {e}")
 
 
 # ─── Main ─────────────────────────────────────────────────────────────
@@ -1155,7 +1150,11 @@ def main():
                 '--disable-dev-shm-usage',
                 '--disable-infobars',
                 '--window-size=1920,1080',
-            ]
+                '--ignore-certificate-errors',
+                '--ignore-certificate-errors-spki-list',
+                '--disable-features=CertificateTransparencyComponentUpdater',
+            ],
+            ignore_default_args=['--enable-automation'],
         )
 
         context = browser.new_context(
@@ -1163,6 +1162,7 @@ def main():
             viewport={'width': 1920, 'height': 1080},
             locale='fr-FR',
             timezone_id='Europe/Paris',
+            ignore_https_errors=True,
         )
 
         # Masquer l'automatisation

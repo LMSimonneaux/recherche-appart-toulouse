@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """Configurer les critères de recherche → `search_config.json`.
 
+Les presets sont lus depuis `configs/<ville>.json` (visibles et versionnés).
+
 Usage interactif:
   python set_criteria.py
 
-Presets prêts à l'emploi:
-  python set_criteria.py --preset paris          # Paris arr. 5/6/7/8/11/13/14/15, ≤500€, studio + coloc
-  python set_criteria.py --preset paris-coloc    # Idem, colocations seulement
-  python set_criteria.py --preset toulouse       # Toulouse centre, ≤600€, sans coloc
+Presets disponibles (un fichier par ville dans configs/):
+  python set_criteria.py --preset toulouse --run
+  python set_criteria.py --preset paris --run
 
 Personnalisation rapide:
-  python set_criteria.py --preset paris --max-price 600 --run
+  python set_criteria.py --preset paris --max-price 800 --run
   python set_criteria.py --city Paris --arrondissements 5,6,11 --max-price 550 --only-coloc --run
-  python set_criteria.py --city Toulouse --postal-codes 31000,31400 --max-price 700 --allow-coloc --run
 """
 import json
 import os
@@ -21,43 +21,30 @@ import argparse
 import subprocess
 
 CONFIG_PATH = "search_config.json"
+PRESETS_DIR = "configs"
 
-# ─── Presets ─────────────────────────────────────────────────────────
 
-PARIS_DEFAULT_ARRONDISSEMENTS = [5, 6, 7, 8, 11, 13, 14, 15]
+def _load_presets() -> dict:
+    """Charge les presets depuis configs/*.json (un fichier par ville)."""
+    presets: dict = {}
+    if not os.path.isdir(PRESETS_DIR):
+        return presets
+    for fname in sorted(os.listdir(PRESETS_DIR)):
+        if not fname.endswith('.json'):
+            continue
+        path = os.path.join(PRESETS_DIR, fname)
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                name = os.path.splitext(fname)[0].lower()
+                presets[name] = data
+        except Exception as e:
+            print(f"  ⚠ Preset ignoré ({fname}): {e}", file=sys.stderr)
+    return presets
 
-PRESETS: dict = {
-    'paris': {
-        'max_price': 500,
-        'city': 'Paris',
-        'postal_codes': [f'750{a:02d}' for a in PARIS_DEFAULT_ARRONDISSEMENTS],
-        'allow_coloc': True,
-        'only_coloc': False,
-        'center_only': True,
-        'max_pages': 11,
-        'notes': f"Paris — arrondissements {', '.join(str(a) + 'e' for a in PARIS_DEFAULT_ARRONDISSEMENTS)}, studio ou coloc",
-    },
-    'paris-coloc': {
-        'max_price': 500,
-        'city': 'Paris',
-        'postal_codes': [f'750{a:02d}' for a in PARIS_DEFAULT_ARRONDISSEMENTS],
-        'allow_coloc': True,
-        'only_coloc': True,
-        'center_only': True,
-        'max_pages': 11,
-        'notes': f"Paris — arrondissements {', '.join(str(a) + 'e' for a in PARIS_DEFAULT_ARRONDISSEMENTS)}, colocations uniquement",
-    },
-    'toulouse': {
-        'max_price': 600,
-        'city': 'Toulouse',
-        'postal_codes': ['31000'],
-        'allow_coloc': False,
-        'only_coloc': False,
-        'center_only': True,
-        'max_pages': 11,
-        'notes': 'Toulouse centre-ville, ≤600€, sans colocation',
-    },
-}
+
+PRESETS = _load_presets()
 
 # ─── Helpers ─────────────────────────────────────────────────────────
 
